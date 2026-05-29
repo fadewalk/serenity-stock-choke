@@ -13,6 +13,8 @@ description: |
 
   ⚠️ 注意：本技能不预测大盘走势，不适用于纯题材炒作无实质产业逻辑的小票。
 agent_created: true
+license: MIT
+topics: [agent-skills, a-stock, choke-point, supply-chain, serenity, stock-picking]
 framework: Serenity Choke Point Theory
 market: A-share (A股)
 version: 2.0
