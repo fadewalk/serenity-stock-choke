@@ -1,3 +1,35 @@
+
+<div align="right">
+  <details>
+    <summary >🌐 Language</summary>
+    <div>
+      <div align="center">
+        <a href="https://openaitx.github.io/view.html?user=fadewalk&project=serenity-stock-choke&lang=en">English</a>
+        | <a href="https://openaitx.github.io/view.html?user=fadewalk&project=serenity-stock-choke&lang=zh-CN">简体中文</a>
+        | <a href="https://openaitx.github.io/view.html?user=fadewalk&project=serenity-stock-choke&lang=zh-TW">繁體中文</a>
+        | <a href="https://openaitx.github.io/view.html?user=fadewalk&project=serenity-stock-choke&lang=ja">日本語</a>
+        | <a href="https://openaitx.github.io/view.html?user=fadewalk&project=serenity-stock-choke&lang=ko">한국어</a>
+        | <a href="https://openaitx.github.io/view.html?user=fadewalk&project=serenity-stock-choke&lang=hi">हिन्दी</a>
+        | <a href="https://openaitx.github.io/view.html?user=fadewalk&project=serenity-stock-choke&lang=th">ไทย</a>
+        | <a href="https://openaitx.github.io/view.html?user=fadewalk&project=serenity-stock-choke&lang=fr">Français</a>
+        | <a href="https://openaitx.github.io/view.html?user=fadewalk&project=serenity-stock-choke&lang=de">Deutsch</a>
+        | <a href="https://openaitx.github.io/view.html?user=fadewalk&project=serenity-stock-choke&lang=es">Español</a>
+        | <a href="https://openaitx.github.io/view.html?user=fadewalk&project=serenity-stock-choke&lang=it">Italiano</a>
+        | <a href="https://openaitx.github.io/view.html?user=fadewalk&project=serenity-stock-choke&lang=ru">Русский</a>
+        | <a href="https://openaitx.github.io/view.html?user=fadewalk&project=serenity-stock-choke&lang=pt">Português</a>
+        | <a href="https://openaitx.github.io/view.html?user=fadewalk&project=serenity-stock-choke&lang=nl">Nederlands</a>
+        | <a href="https://openaitx.github.io/view.html?user=fadewalk&project=serenity-stock-choke&lang=pl">Polski</a>
+        | <a href="https://openaitx.github.io/view.html?user=fadewalk&project=serenity-stock-choke&lang=ar">العربية</a>
+        | <a href="https://openaitx.github.io/view.html?user=fadewalk&project=serenity-stock-choke&lang=fa">فارسی</a>
+        | <a href="https://openaitx.github.io/view.html?user=fadewalk&project=serenity-stock-choke&lang=tr">Türkçe</a>
+        | <a href="https://openaitx.github.io/view.html?user=fadewalk&project=serenity-stock-choke&lang=vi">Tiếng Việt</a>
+        | <a href="https://openaitx.github.io/view.html?user=fadewalk&project=serenity-stock-choke&lang=id">Bahasa Indonesia</a>
+        | <a href="https://openaitx.github.io/view.html?user=fadewalk&project=serenity-stock-choke&lang=as">অসমীয়া</
+      </div>
+    </div>
+  </details>
+</div>
+
 # Serenity Stock Choke · A股卡脖子选股框架
 
 > "**沿着产业链向上游追溯，找到那个'一旦断货，万亿产业就要地震'的关键节点——那个节点上的小盘股，就是下一个暴击机会。**"
