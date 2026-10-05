@@ -96,21 +96,35 @@
 
 ## 快速开始
 
-### 安装到通用智能体
-
-本技能不依赖任何特定平台，Claude Code / Codex 等智能体安装后即可使用：
+### 一键安装（三选一）
 
 ```bash
-# Claude Code（放入技能目录）
-git clone https://github.com/fadewalk/serenity-stock-choke.git ~/.claude/skills/serenity-stock-choke
+# 方式一：Claude Code 插件市场（推荐，安装后自动启用）
+# 在 Claude Code 中依次执行：
+/plugin marketplace add fadewalk/serenity-stock-choke
+/plugin install serenity-stock-choke@serenity-stock-choke
 
-# 或复制到项目的智能体技能目录
-cp -r serenity-stock-choke/ .claude/skills/
-cp -r serenity-stock-choke/ .agents/skills/   # Codex / 其他智能体
+# 方式二：skills.sh 安装器（Claude Code / Codex / Cursor 等通用）
+npx skills add fadewalk/serenity-stock-choke
+
+# 方式三：手动 git clone
+git clone https://github.com/fadewalk/serenity-stock-choke.git ~/.claude/skills/serenity-stock-choke
 ```
 
-内置查询脚本仅用 Python 标准库，无需安装依赖、无需 API Key
-（`akshare` 为可选增强：`pip install akshare`）。
+手动安装时也可复制到项目目录 `.claude/skills/`（Claude Code）或
+`.agents/skills/`（Codex 等其他智能体）。内置查询脚本仅用 Python 标准库，
+无需安装依赖、无需 API Key（`akshare` 为可选增强：`pip install akshare`）。
+
+### 支持市场
+
+| 市场 | 行情/估值（stock/search） | 板块K线 | 研报/两融/筹码 |
+|------|:---:|:---:|:---:|
+| **A股** | ✅ 含主力净流入 | ✅ | ✅ |
+| **港股** | ✅ HKD 计价 | — | 网络检索兜底 |
+| **美股** | ✅ USD 计价，支持中文名 | — | 网络检索兜底 |
+
+六步法分析框架市场无关；港股/美股的机构信号（13F、short interest、南向资金、
+沽空比率）通过 SKILL.md 中的检索模板获取。
 
 ### 触发方式
 
@@ -119,6 +133,7 @@ cp -r serenity-stock-choke/ .agents/skills/   # Codex / 其他智能体
 ```
 用 serenity-stock-choke 分析 [板块名]
 例：用 serenity-stock-choke 分析军工板块
+用 serenity-stock-choke 分析美股 AI 算力供应链
 ```
 
 或者：
@@ -134,12 +149,14 @@ cp -r serenity-stock-choke/ .agents/skills/   # Codex / 其他智能体
 1. **智能体自带财经工具**：若环境已接入行情/研报类 MCP 工具，优先使用
 2. **内置脚本**（`scripts/a_stock_query.py`，公开接口零依赖，多源自动降级）：
    ```bash
-   python3 scripts/a_stock_query.py stock 贵州茅台   # 个股快照：价格/PE/PB/市值/主力净流入
-   python3 scripts/a_stock_query.py sector 电力       # 板块K线+区间涨跌幅
-   python3 scripts/a_stock_query.py reports 600519   # 券商研报评级
-   python3 scripts/a_stock_query.py margin 600519    # 融资融券余额
+   python3 scripts/a_stock_query.py stock 贵州茅台   # A股快照：价格/PE/PB/市值/主力净流入
+   python3 scripts/a_stock_query.py stock 00700      # 港股：腾讯控股（HKD）
+   python3 scripts/a_stock_query.py stock AAPL       # 美股：苹果（USD）
+   python3 scripts/a_stock_query.py sector 电力       # A股板块K线+区间涨跌幅
+   python3 scripts/a_stock_query.py reports 600519   # A股券商研报评级
+   python3 scripts/a_stock_query.py margin 600519    # A股融资融券余额
    ```
-3. **网络检索兜底**：按 SKILL.md 中的检索模板查询供需缺口/政策/筹码等数据
+3. **网络检索兜底**：按 SKILL.md 中的检索模板查询供需缺口/政策/筹码/13F/沽空等数据
 
 ---
 
@@ -147,10 +164,13 @@ cp -r serenity-stock-choke/ .agents/skills/   # Codex / 其他智能体
 
 ```
 serenity-stock-choke/
-├── SKILL.md                    # 主提示词（六步推理链路 + 三级数据策略）
+├── SKILL.md                    # 主提示词（六步推理链路 + 三级数据策略 + 跨市场支持）
 ├── README.md                   # 本文件
+├── .claude-plugin/             # Claude Code 插件市场一键安装
+│   ├── plugin.json
+│   └── marketplace.json
 ├── scripts/
-│   └── a_stock_query.py        # 独立数据查询脚本（零依赖，多源冗余）
+│   └── a_stock_query.py        # 独立数据查询脚本（零依赖，多源冗余，A股/港股/美股）
 └── references/
     └── user_guide.md          # 使用指南 + 常见板块参考表
 ```

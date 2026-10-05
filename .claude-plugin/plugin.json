@@ -1,0 +1,21 @@
+{
+  "name": "serenity-stock-choke",
+  "description": "A股/港股/美股卡脖子选股技能：Serenity 供应链瓶颈理论六步法，含零依赖行情脚本",
+  "version": "3.1.0",
+  "author": {
+    "name": "fadewalk"
+  },
+  "homepage": "https://github.com/fadewalk/serenity-stock-choke",
+  "repository": "https://github.com/fadewalk/serenity-stock-choke",
+  "license": "MIT",
+  "keywords": [
+    "agent-skills",
+    "stock-picking",
+    "supply-chain",
+    "choke-point",
+    "serenity",
+    "a-stock",
+    "us-stock",
+    "hk-stock"
+  ]
+}

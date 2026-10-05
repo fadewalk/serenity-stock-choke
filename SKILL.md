@@ -1,27 +1,29 @@
 ---
 name: serenity-stock-choke
 description: |
-  A股通用"卡脖子"选股技能。应用 Serenity（@aleabitoreddit）的供应链瓶颈理论，
-  对任意 A 股板块/产业链进行结构化分析，寻找"一旦断货整个产业就停工"的瓶颈环节，
+  A股/港股/美股通用"卡脖子"选股技能。应用 Serenity（@aleabitoreddit）的供应链瓶颈理论，
+  对任意板块/产业链进行结构化分析，寻找"一旦断货整个产业就停工"的瓶颈环节，
   并筛选该环节中具备技术壁垒和资本信号的小盘股。
 
-  触发词：分析XX板块、找XX卡脖子、serenity分析、A股瓶颈产业链
+  触发词：分析XX板块、找XX卡脖子、serenity分析、A股/美股/港股瓶颈产业链
 
-  适用板块示例：电力、光模块、医疗器械、半导体设备、军工、新能源车等任意板块
+  适用板块示例：电力、光模块、医疗器械、半导体设备、军工、新能源车等任意板块；
+  港美股示例：InP衬底（AXTI）、CPO激光器（AAOI）、AI算力链（NVDA/TSM）
 
   数据源：三级数据获取策略（智能体自带财经工具 → 本技能内置脚本 → 网络检索），
   不依赖任何特定平台，Claude Code / Codex / 通用智能体均可直接使用。
+  行情/估值支持 A股+港股+美股；研报/两融/筹码等深度数据仅A股。
 
   ⚠️ 注意：本技能不预测大盘走势，不适用于纯题材炒作无实质产业逻辑的小票。
 agent_created: true
 license: MIT
-topics: [agent-skills, a-stock, choke-point, supply-chain, serenity, stock-picking]
+topics: [agent-skills, a-stock, us-stock, hk-stock, choke-point, supply-chain, serenity, stock-picking]
 framework: Serenity Choke Point Theory
-market: A-share (A股)
-version: 3.0
+market: A-share, HK-stock, US-stock
+version: 3.1
 ---
 
-# Serenity A股卡脖子框架 · 通用版 v3.0
+# Serenity 卡脖子框架 · 通用版 v3.1（A股 / 港股 / 美股）
 
 ## 你的核心使命
 
@@ -47,13 +49,18 @@ version: 3.0
 ```bash
 # 脚本位置：本技能目录下 scripts/a_stock_query.py（公开接口，多源自动降级）
 
-python3 scripts/a_stock_query.py stock 贵州茅台      # 个股快照：价格/涨跌幅/PE/PB/市值/主力净流入
-python3 scripts/a_stock_query.py search CPO          # 名称联想（个股+板块代码）
-python3 scripts/a_stock_query.py sector 电力          # 板块近5日K线+区间涨跌幅（可加 --days 10）
-python3 scripts/a_stock_query.py reports 600519      # 券商研报：评级/机构/盈利预测
-python3 scripts/a_stock_query.py margin 600519       # 融资融券余额近5日（杠杆资金态度）
-python3 scripts/a_stock_query.py chip 600519         # 筹码分布（需 pip install akshare，可选）
-python3 scripts/a_stock_query.py block 600519        # 大宗交易（需 pip install akshare，可选）
+# 行情快照（A股/港股/美股自动识别，返回 JSON）
+python3 scripts/a_stock_query.py stock 贵州茅台      # A股：价格/涨跌幅/PE/PB/市值/主力净流入
+python3 scripts/a_stock_query.py stock 00700         # 港股：腾讯控股（HKD 计价）
+python3 scripts/a_stock_query.py stock AAPL          # 美股：苹果（USD 计价，支持中文名如"特斯拉"）
+python3 scripts/a_stock_query.py search 英伟达        # 名称联想（A股+港股+美股+板块）
+python3 scripts/a_stock_query.py sector 电力          # A股板块近5日K线+区间涨跌幅（--days 10 可调）
+
+# A股专属深度数据
+python3 scripts/a_stock_query.py reports 600519      # 券商研报：评级/机构/盈利预测（仅A股）
+python3 scripts/a_stock_query.py margin 600519       # 融资融券余额近5日（仅A股）
+python3 scripts/a_stock_query.py chip 600519         # 筹码分布（需 pip install akshare，仅A股）
+python3 scripts/a_stock_query.py block 600519        # 大宗交易（需 pip install akshare，仅A股）
 ```
 
 所有命令输出 JSON。脚本内置多源冗余（东方财富→腾讯行情自动切换），
@@ -72,6 +79,8 @@ python3 scripts/a_stock_query.py block 600519        # 大宗交易（需 pip in
 | 竞争格局 | `[环节] 竞争格局 市场份额 寡头` |
 | 筹码/大宗 | `[代码] 筹码分布 股东人数` / `[代码] 大宗交易 折价率` |
 | 北向资金 | `[板块] 北向资金 持股变化` |
+| 美股机构动向 | `TICKER 13F holdings` / `TICKER short interest` / `TICKER options flow` |
+| 港股资金 | `[代码] 南向资金 持股` / `[代码] 沽空比率 short selling` |
 
 ---
 
@@ -249,6 +258,41 @@ AI大爆发 → 上游硬件需求暴增 →
 2. **流动性风险**：建仓/清仓时股价波动剧烈
 3. **时间成本**：逻辑验证可能需要1-3年
 4. **信号噪音**：供应链消息真真假假，需要独立验证
+
+---
+
+## 跨市场支持（A股 / 港股 / 美股）
+
+> 六步法核心（周期判断 → 供应链溯源 → 卡脖子定位 → 真伪筛选 → 多空确认）是**市场无关**的。
+> Serenity 理论的原版战例本来就在美股（AXTI/AAOI/SIVE/XFAB）。差别在数据信号层。
+
+### 各命令适用范围
+
+| 命令 | A股 | 港股 | 美股 |
+|------|-----|------|------|
+| `search` / `stock`（行情快照） | ✅ | ✅ | ✅ |
+| `sector`（板块K线） | ✅ | ❌ | ❌ |
+| `reports`（券商研报） | ✅ | ❌ | ❌ |
+| `margin`（融资融券） | ✅ | ❌ | ❌ |
+| `chip` / `block`（筹码/大宗） | ✅ | ❌ | ❌ |
+
+港美股深度数据不可得时，命令会返回明确的第三级网络检索建议。
+
+### 港美股专属信号维度（替代A股的龙虎榜/两融/北向）
+
+| 市场 | 做多信号（检索获取） | 对应A股信号 |
+|------|---------------------|------------|
+| **美股** | 13F 机构增持（巴克莱/桥水等建仓）、short interest 下降、分析师目标价上调、期权看涨异动 | 主力净流入 + 融资余额 |
+| **港股** | 南向资金持续净买入、沽空比率下降、恒生科技指数成分调整纳入 | 北向资金 + 主力净流入 |
+| **通用** | 供应链公告（新订单/扩产/长协）、专利与出口管制动态 | 政策催化 |
+
+### 港美股分析示例触发
+
+```
+用 serenity-stock-choke 分析美股 AI 算力供应链      → InP衬底/HBM/CoWoS 瓶颈
+用 serenity-stock-choke 分析港股 半导体设备         → 中芯国际产业链+南向资金
+找 CPO 激光器的美股卡脖子标的                       → 对标 AAOI/LITE/COHR
+```
 
 ---
 

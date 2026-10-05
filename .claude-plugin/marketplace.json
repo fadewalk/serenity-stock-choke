@@ -1,0 +1,19 @@
+{
+  "name": "serenity-stock-choke",
+  "owner": {
+    "name": "fadewalk"
+  },
+  "metadata": {
+    "description": "Serenity 卡脖子选股技能（A股/港股/美股）",
+    "version": "3.1.0"
+  },
+  "plugins": [
+    {
+      "name": "serenity-stock-choke",
+      "description": "A股/港股/美股卡脖子选股技能：Serenity 供应链瓶颈理论六步法，含零依赖行情脚本",
+      "source": "./",
+      "strict": false,
+      "skills": ["./"]
+    }
+  ]
+}

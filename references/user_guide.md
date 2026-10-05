@@ -83,13 +83,27 @@ python3 scripts/a_stock_query.py block [代码]       # 大宗交易（可选：
 ### 网络检索兜底模板
 
 ```
-[板块名] 板块 行情 主力资金流向          # 板块行情/资金
+[板块名] 板块 行情 主力资金流向          # A股板块行情/资金
 [关键材料] 供需缺口 国产替代 扩产周期    # 供应链卡脖子
 [板块] 政府工作报告 政策文件             # 政策催化
 [公司名] 券商研报 评级 目标价           # 研报信号
-[代码] 筹码分布 股东人数                # 筹码信号
-[代码] 大宗交易 折价率                  # 大宗信号
+[代码] 筹码分布 股东人数                # A股筹码信号
+[代码] 大宗交易 折价率                  # A股大宗信号
+TICKER 13F holdings / short interest   # 美股机构动向/空头比例
+[港股代码] 南向资金 沽空比率            # 港股资金信号
 ```
+
+### 港美股快速上手
+
+```bash
+python3 scripts/a_stock_query.py stock 00700    # 腾讯控股（HKD）
+python3 scripts/a_stock_query.py stock NVDA     # 英伟达（USD）
+python3 scripts/a_stock_query.py stock 台积电    # 支持中文名解析
+python3 scripts/a_stock_query.py search 苹果     # 联想返回 A股/港股/美股候选
+```
+
+六步法分析流程与 A 股完全一致；差异在信号层——港美股用
+13F/short interest（美股）、南向资金/沽空比率（港股）替代龙虎榜/两融/北向。
 
 ### 与六步法的对应关系
 

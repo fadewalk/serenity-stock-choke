@@ -1,26 +1,28 @@
 #!/usr/bin/env python3
 """
-Serenity A股框架 · 独立数据查询脚本（零依赖，多源冗余）
+Serenity A股/港美股框架 · 独立数据查询脚本（零依赖，多源冗余）
 
 不依赖任何智能体平台（WorkBuddy/Claude Code/Codex 均可调用），无需 API Key，
 仅用 Python 标准库 + 公开财经接口；akshare 为可选增强（筹码/大宗）。
 
 数据源（按稳定性排序，自动降级）：
-  行情快照   东方财富 push2 → 腾讯 qt.gtimg.cn
-  板块K线    东方财富 push2his（不可用时提示改用网络检索）
-  名称联想   东方财富 searchapi
-  券商研报   东方财富 reportapi
-  融资融券   东方财富 datacenter-web
-  筹码/大宗  akshare（可选安装）
+  行情快照   东方财富 push2 → 腾讯 qt.gtimg.cn（A股/港股/美股均支持）
+  板块K线    东方财富 push2his（仅A股板块；不可用时提示改用网络检索）
+  名称联想   东方财富 searchapi（自动识别 A股/港股/美股）
+  券商研报   东方财富 reportapi（仅A股）
+  融资融券   东方财富 datacenter-web（仅A股）
+  筹码/大宗  akshare（可选安装，仅A股）
 
 用法（结果均为 JSON，可直接被智能体解析）:
-  python3 scripts/a_stock_query.py stock 贵州茅台     # 个股快照: 价格/涨跌幅/PE/PB/市值/主力净流入
-  python3 scripts/a_stock_query.py sector 电力 [--days 5]   # 板块近N日K线+区间涨跌幅
-  python3 scripts/a_stock_query.py reports 600519     # 券商研报: 评级/机构/盈利预测
-  python3 scripts/a_stock_query.py margin 600519      # 融资融券余额近5日
-  python3 scripts/a_stock_query.py search CPO         # 名称联想（个股+板块）
-  python3 scripts/a_stock_query.py chip 600519        # 筹码分布（需 akshare）
-  python3 scripts/a_stock_query.py block 600519       # 大宗交易（需 akshare）
+  python3 scripts/a_stock_query.py stock 贵州茅台     # A股快照: 价格/涨跌幅/PE/PB/市值/主力净流入
+  python3 scripts/a_stock_query.py stock 00700        # 港股: 腾讯控股(HKD)
+  python3 scripts/a_stock_query.py stock AAPL         # 美股: 苹果(USD)
+  python3 scripts/a_stock_query.py search 英伟达       # 名称联想（A股+港股+美股+板块）
+  python3 scripts/a_stock_query.py sector 电力 [--days 5]   # A股板块近N日K线+区间涨跌幅
+  python3 scripts/a_stock_query.py reports 600519     # A股券商研报: 评级/机构/盈利预测
+  python3 scripts/a_stock_query.py margin 600519      # A股融资融券余额近5日
+  python3 scripts/a_stock_query.py chip 600519        # A股筹码分布（需 akshare）
+  python3 scripts/a_stock_query.py block 600519       # A股大宗交易（需 akshare）
 """
 
 import argparse
@@ -43,7 +45,7 @@ EM_STOCK = ("https://push2.eastmoney.com/api/qt/stock/get"
 EM_KLINE = ("https://push2his.eastmoney.com/api/qt/stock/kline/get"
             "?secid={secid}&klt=101&fqt=1&lmt={lmt}&end=20500101"
             "&fields1=f1,f2,f3&fields2=f51,f53,f56,f57")
-TX_QUOTE = "https://qt.gtimg.cn/q={mkt}{code}"
+TX_QUOTE = "https://qt.gtimg.cn/q={symbol}"
 REPORT_URL = ("https://reportapi.eastmoney.com/report/list"
               "?pageSize={n}&pageNo=1&code={code}&industryCode=*&industry=*"
               "&rating=*&ratingchange=*&beginTime={begin}&endTime={end}&qType=0")
@@ -115,19 +117,42 @@ def _fmt_amount(v):
 
 
 # ---------------- 名称/代码解析 ----------------
+def _market_of(quote_id: str) -> str:
+    """东财 QuoteID 前缀 → 市场标识"""
+    prefix = quote_id.split(".")[0] if "." in quote_id else ""
+    return {"1": "cn", "0": "cn", "116": "hk",
+            "105": "us", "106": "us", "107": "us"}.get(prefix, "cn" if prefix else "cn")
+
+
 def _guess_secid(code: str):
-    """纯数字代码且联想接口不可用时，按规则推断东财 secid"""
-    if code.startswith(("6", "9")):
-        return {"code": code, "name": None, "quote_id": f"1.{code}", "is_board": False,
-                "mkt": "sh"}
-    if code.startswith(("0", "2", "3")):
-        return {"code": code, "name": None, "quote_id": f"0.{code}", "is_board": False,
-                "mkt": "sz"}
+    """联想接口不可用时的纯规则兜底（仅A股/港股代码可推断）"""
+    if code.isdigit() and len(code) == 6:
+        mkt = "sh" if code.startswith(("6", "9")) else "sz"
+        prefix = "1" if mkt == "sh" else "0"
+        return {"code": code, "name": None, "quote_id": f"{prefix}.{code}",
+                "is_board": False, "market": "cn", "tx_symbol": f"{mkt}{code}"}
+    if code.isdigit() and 4 <= len(code) <= 5:
+        c = code.zfill(5)
+        return {"code": c, "name": None, "quote_id": f"116.{c}",
+                "is_board": False, "market": "hk", "tx_symbol": f"hk{c}"}
     return None
 
 
+def _tx_symbol_of(t: dict) -> str:
+    """统一标识 → 腾讯行情 symbol（A股 sh/sz、港股 hk、美股 us）"""
+    if t.get("tx_symbol"):
+        return t["tx_symbol"]
+    market, qid = t.get("market"), t.get("quote_id", "")
+    code = t.get("code", "")
+    if market == "hk":
+        return f"hk{code}"
+    if market == "us":
+        return f"us{code}"
+    return ("sh" if qid.startswith("1.") else "sz") + code
+
+
 def resolve(keyword: str):
-    """名称/代码/拼音 → 统一标识 {code,name,quote_id,is_board,mkt}"""
+    """名称/代码/拼音 → 统一标识 {code,name,quote_id,is_board,market,tx_symbol}"""
     d = _get_json(SUGGEST_URL.format(kw=urllib.parse.quote(keyword)))
     rows = (d or {}).get("QuotationCodeTable", {}).get("Data") or []
     hit = None
@@ -138,40 +163,70 @@ def resolve(keyword: str):
     hit = hit or (rows[0] if rows else None)
     if hit:
         qid = hit.get("QuoteID", "")
-        mkt = {"1": "sh", "0": "sz"}.get(qid.split(".")[0], "sh")
-        return {"code": hit.get("Code"), "name": hit.get("Name"), "quote_id": qid,
-                "is_board": qid.startswith("90."), "mkt": mkt}
-    return _guess_secid(keyword) if keyword.isdigit() else None
+        t = {"code": hit.get("Code"), "name": hit.get("Name"), "quote_id": qid,
+             "is_board": qid.startswith("90."), "market": _market_of(qid)}
+        t["tx_symbol"] = _tx_symbol_of(t)
+        return t
+    return _guess_secid(keyword) if keyword.replace(".", "").isalnum() else None
 
 
 # ---------------- 命令实现 ----------------
+def _tx_parse_hk_us(f: list, market: str, t: dict):
+    """腾讯港/美股字段映射：[3]现价 [31]涨跌 [32]涨跌幅% [39]PE [44/45]市值亿 [46]英文名 [48/49]52周"""
+    if len(f) < 50 or not f[3]:
+        return None
+    currency = "HKD" if market == "hk" else "USD"
+    mv = f[45] if market == "us" and f[45] else f[44]
+    return {"source": "tencent", "market": market, "code": t["code"],
+            "name": f[1], "name_en": f[46] if len(f) > 46 and f[46] else None,
+            "currency": currency,
+            "price": float(f[3]), "pct_change": float(f[32]),
+            "pe_ttm": float(f[39]) if f[39] else None,
+            "pb": None,
+            "total_mv": f"{mv}亿{currency}" if mv else None,
+            "week52_high": float(f[48]) if f[48] else None,
+            "week52_low": float(f[49]) if f[49] else None,
+            "note": "港美股公开接口不提供PB与主力资金流；"
+                    "估值与资金信号请用第三级网络检索（13F/沽空比率/南向资金等）"}
+
+
 def cmd_stock(keyword: str):
     t = resolve(keyword)
     if not t or t["is_board"]:
         _fail({"error": f"未找到个股: {keyword}，请先用 search 命令确认代码"})
 
-    # 主源：东方财富（含主力净流入）
+    # 主源：东方财富（A股含主力净流入；港美股同样支持 secid 查询）
     d = (_get_json(EM_STOCK.format(secid=t["quote_id"])) or {}).get("data")
     if d and d.get("f43") is not None:
-        return {"source": "eastmoney", "code": d.get("f57"), "name": d.get("f58"),
-                "price": d.get("f43"), "pct_change": d.get("f170"),
-                "pe_ttm": d.get("f162"), "pb": d.get("f167"),
-                "total_mv": _fmt_amount(d.get("f116")),
-                "float_mv": _fmt_amount(d.get("f117")),
-                "main_inflow_today": _fmt_amount(d.get("f62"))}
+        out = {"source": "eastmoney", "market": t["market"], "code": d.get("f57"),
+               "name": d.get("f58"), "price": d.get("f43"), "pct_change": d.get("f170"),
+               "pe_ttm": d.get("f162"), "pb": d.get("f167"),
+               "total_mv": _fmt_amount(d.get("f116")),
+               "float_mv": _fmt_amount(d.get("f117"))}
+        if t["market"] == "cn":
+            out["main_inflow_today"] = _fmt_amount(d.get("f62"))
+        else:
+            out["currency"] = "HKD" if t["market"] == "hk" else "USD"
+            out["note"] = "港美股公开接口不提供主力资金流；信号获取见 SKILL.md 跨市场章节"
+        return out
 
-    # 降级源：腾讯行情
-    text = _fetch(TX_QUOTE.format(mkt=t["mkt"], code=t["code"]), decode="gbk")
+    # 降级源：腾讯行情（A股/港股/美股）
+    text = _fetch(TX_QUOTE.format(symbol=t["tx_symbol"]), decode="gbk")
     if text and "~" in text:
         f = text.split('"')[1].split("~")
-        if len(f) > 53 and f[3]:
-            return {"source": "tencent", "code": t["code"], "name": f[1],
-                    "price": float(f[3]), "pct_change": float(f[32]),
-                    "pe_ttm": float(f[39]), "pb": float(f[46]),
-                    "total_mv": f"{f[45]}亿", "float_mv": f"{f[44]}亿",
-                    "turnover_pct": float(f[38]), "volume_hand": float(f[36]),
-                    "main_inflow_today": None,
-                    "note": "主力净流入本源不提供，可用 margin 命令或网络检索补充"}
+        if t["market"] == "cn":
+            if len(f) > 53 and f[3]:
+                return {"source": "tencent", "market": "cn", "code": t["code"],
+                        "name": f[1], "price": float(f[3]), "pct_change": float(f[32]),
+                        "pe_ttm": float(f[39]), "pb": float(f[46]),
+                        "total_mv": f"{f[45]}亿", "float_mv": f"{f[44]}亿",
+                        "turnover_pct": float(f[38]), "volume_hand": float(f[36]),
+                        "main_inflow_today": None,
+                        "note": "主力净流入本源不提供，可用 margin 命令或网络检索补充"}
+        else:
+            out = _tx_parse_hk_us(f, t["market"], t)
+            if out:
+                return out
     _fail()
 
 
@@ -197,10 +252,19 @@ def cmd_sector(keyword: str, days: int = 5):
             "note": "range_pct 为区间涨跌幅；板块实时资金流请配合网络检索"}
 
 
-def cmd_reports(keyword: str, n: int = 8):
+def _require_cn_stock(keyword: str):
     t = resolve(keyword)
     if not t or t["is_board"]:
-        _fail({"error": f"未找到个股: {keyword}"})
+        _fail({"error": f"未找到个股: {keyword}，请先用 search 命令确认代码"})
+    if t["market"] != "cn":
+        _fail({"error": f"{t.get('name') or keyword} 属于{'港股' if t['market'] == 'hk' else '美股'}，"
+                        "本命令仅支持A股。港美股对应数据请用第三级网络检索："
+                        "美股『TICKER 13F holdings short interest』；港股『代码 南向资金 沽空比率』"})
+    return t
+
+
+def cmd_reports(keyword: str, n: int = 8):
+    t = _require_cn_stock(keyword)
     end = datetime.date.today()
     begin = end - datetime.timedelta(days=180)
     d = _get_json(REPORT_URL.format(code=t["code"], n=n, begin=begin, end=end))
@@ -217,9 +281,7 @@ def cmd_reports(keyword: str, n: int = 8):
 
 
 def cmd_margin(keyword: str, n: int = 5):
-    t = resolve(keyword)
-    if not t or t["is_board"]:
-        _fail({"error": f"未找到个股: {keyword}"})
+    t = _require_cn_stock(keyword)
     d = _get_json(MARGIN_URL.format(code=t["code"], n=n))
     rows = [{"date": (r.get("DATE") or "")[:10],
              "margin_balance": _fmt_amount(r.get("RZYE")),
@@ -234,10 +296,15 @@ def cmd_margin(keyword: str, n: int = 5):
 
 def cmd_search(keyword: str):
     d = _get_json(SUGGEST_URL.format(kw=urllib.parse.quote(keyword)))
-    rows = [{"code": r.get("Code"), "name": r.get("Name"),
-             "type": "板块" if r.get("QuoteID", "").startswith("90.") else "个股",
-             "quote_id": r.get("QuoteID")}
-            for r in ((d or {}).get("QuotationCodeTable") or {}).get("Data") or []]
+    rows = []
+    for r in ((d or {}).get("QuotationCodeTable") or {}).get("Data") or []:
+        qid = r.get("QuoteID", "")
+        if qid.startswith("90."):
+            mtype = "板块"
+        else:
+            mtype = {"cn": "A股", "hk": "港股", "us": "美股"}[_market_of(qid)]
+        rows.append({"code": r.get("Code"), "name": r.get("Name"),
+                     "type": mtype, "quote_id": qid})
     if not rows:
         _fail({"error": f"无匹配或接口不可达: {keyword}。"
                         "可能是俗称/概念叫法与东财板块库不一致，建议：1) 换近义关键词重试"
@@ -259,9 +326,7 @@ def cmd_chip(keyword: str):
         _fail({"error": "筹码分布需可选依赖 akshare：pip install akshare；"
                         "或网络检索『代码 筹码分布 股东人数』"})
     import akshare as ak
-    t = resolve(keyword)
-    if not t or t["is_board"]:
-        _fail({"error": f"未找到个股: {keyword}"})
+    t = _require_cn_stock(keyword)
     df = ak.stock_cyq_em(symbol=t["code"], adjust="")
     return {"code": t["code"], "name": t["name"],
             "chip_distribution": json.loads(df.to_json(orient="records", force_ascii=False)),
@@ -273,9 +338,7 @@ def cmd_block(keyword: str):
         _fail({"error": "大宗交易需可选依赖 akshare：pip install akshare；"
                         "或网络检索『代码 大宗交易 折价率』"})
     import akshare as ak
-    t = resolve(keyword)
-    if not t or t["is_board"]:
-        _fail({"error": f"未找到个股: {keyword}"})
+    t = _require_cn_stock(keyword)
     df = ak.stock_dzjy_mrmx(symbol=t["code"])
     return {"code": t["code"], "name": t["name"],
             "block_trades": json.loads(df.tail(20).to_json(orient="records", force_ascii=False)),
