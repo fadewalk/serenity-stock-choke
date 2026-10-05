@@ -65,19 +65,39 @@
 
 ## 数据查询快捷指令
 
-### 查板块整体（neodata）
+> 按三级策略降级使用：智能体自带财经工具 → 本技能脚本 → 网络检索。
+> 脚本位置：`scripts/a_stock_query.py`，零依赖，无需 API Key。
+
+### 内置脚本命令
+
+```bash
+python3 scripts/a_stock_query.py search [关键词]    # 名称联想（个股+板块代码）
+python3 scripts/a_stock_query.py stock [名称/代码]  # 个股：价格/涨跌幅/PE/PB/市值/主力净流入
+python3 scripts/a_stock_query.py sector [板块名]    # 板块近5日K线+区间涨跌幅（--days 可调）
+python3 scripts/a_stock_query.py reports [代码]     # 券商研报：评级/机构/盈利预测
+python3 scripts/a_stock_query.py margin [代码]      # 融资融券余额近5日
+python3 scripts/a_stock_query.py chip [代码]        # 筹码分布（可选：pip install akshare）
+python3 scripts/a_stock_query.py block [代码]       # 大宗交易（可选：pip install akshare）
+```
+
+### 网络检索兜底模板
 
 ```
-[板块名] 行情 资金流向
-[关键材料] 供需缺口 国产替代
-[板块] 政府工作报告 政策
-[公司名] 券商研报 评级
+[板块名] 板块 行情 主力资金流向          # 板块行情/资金
+[关键材料] 供需缺口 国产替代 扩产周期    # 供应链卡脖子
+[板块] 政府工作报告 政策文件             # 政策催化
+[公司名] 券商研报 评级 目标价           # 研报信号
+[代码] 筹码分布 股东人数                # 筹码信号
+[代码] 大宗交易 折价率                  # 大宗信号
 ```
 
-### 查个股信号（westock）
+### 与六步法的对应关系
 
-```
-[代码].westock: chip_cost      # 筹码分布
-[代码].westock: block_trade   # 大宗交易
-[代码].westock: margin         # 融资余额
-```
+| 六步法步骤 | 用到的命令/检索 |
+|-----------|---------------|
+| 1 定位周期 | `sector` + 供需缺口检索 |
+| 2 溯源供应链 | 供应链检索模板 |
+| 3 四维信号卡 | `stock` + `reports` + `margin` |
+| 4 真伪筛选 | 主营构成/竞争格局检索 |
+| 5 多空确认 | `margin` + `chip`（可选）+ 资金流检索 |
+| 6 输出报告 | 汇总以上，标注数据来源 |

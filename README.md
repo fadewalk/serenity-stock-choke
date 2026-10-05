@@ -96,9 +96,25 @@
 
 ## 快速开始
 
+### 安装到通用智能体
+
+本技能不依赖任何特定平台，Claude Code / Codex 等智能体安装后即可使用：
+
+```bash
+# Claude Code（放入技能目录）
+git clone https://github.com/fadewalk/serenity-stock-choke.git ~/.claude/skills/serenity-stock-choke
+
+# 或复制到项目的智能体技能目录
+cp -r serenity-stock-choke/ .claude/skills/
+cp -r serenity-stock-choke/ .agents/skills/   # Codex / 其他智能体
+```
+
+内置查询脚本仅用 Python 标准库，无需安装依赖、无需 API Key
+（`akshare` 为可选增强：`pip install akshare`）。
+
 ### 触发方式
 
-在 WorkBuddy 中直接说：
+对智能体直接说：
 
 ```
 用 serenity-stock-choke 分析 [板块名]
@@ -113,10 +129,17 @@
 帮我用 Serenity 框架分析 [板块]
 ```
 
-### 数据工具
+### 数据获取（三级降级，任何环境可用）
 
-- **neodata-financial-search**：板块行情、研报、资金流向查询
-- **westock-data**：筹码分布、大宗交易、融资融券、机构评级
+1. **智能体自带财经工具**：若环境已接入行情/研报类 MCP 工具，优先使用
+2. **内置脚本**（`scripts/a_stock_query.py`，公开接口零依赖，多源自动降级）：
+   ```bash
+   python3 scripts/a_stock_query.py stock 贵州茅台   # 个股快照：价格/PE/PB/市值/主力净流入
+   python3 scripts/a_stock_query.py sector 电力       # 板块K线+区间涨跌幅
+   python3 scripts/a_stock_query.py reports 600519   # 券商研报评级
+   python3 scripts/a_stock_query.py margin 600519    # 融资融券余额
+   ```
+3. **网络检索兜底**：按 SKILL.md 中的检索模板查询供需缺口/政策/筹码等数据
 
 ---
 
@@ -124,8 +147,10 @@
 
 ```
 serenity-stock-choke/
-├── SKILL.md                    # 主提示词（六步推理链路 + 工具箱）
+├── SKILL.md                    # 主提示词（六步推理链路 + 三级数据策略）
 ├── README.md                   # 本文件
+├── scripts/
+│   └── a_stock_query.py        # 独立数据查询脚本（零依赖，多源冗余）
 └── references/
     └── user_guide.md          # 使用指南 + 常见板块参考表
 ```

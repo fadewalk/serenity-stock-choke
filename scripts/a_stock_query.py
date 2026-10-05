@@ -1,95 +1,307 @@
 #!/usr/bin/env python3
 """
-Serenity A股框架 · 通用查询脚本
-用法: python a_stock_query.py --query "查询内容" --type [sector|stock|policy|fund]
+Serenity A股框架 · 独立数据查询脚本（零依赖，多源冗余）
+
+不依赖任何智能体平台（WorkBuddy/Claude Code/Codex 均可调用），无需 API Key，
+仅用 Python 标准库 + 公开财经接口；akshare 为可选增强（筹码/大宗）。
+
+数据源（按稳定性排序，自动降级）：
+  行情快照   东方财富 push2 → 腾讯 qt.gtimg.cn
+  板块K线    东方财富 push2his（不可用时提示改用网络检索）
+  名称联想   东方财富 searchapi
+  券商研报   东方财富 reportapi
+  融资融券   东方财富 datacenter-web
+  筹码/大宗  akshare（可选安装）
+
+用法（结果均为 JSON，可直接被智能体解析）:
+  python3 scripts/a_stock_query.py stock 贵州茅台     # 个股快照: 价格/涨跌幅/PE/PB/市值/主力净流入
+  python3 scripts/a_stock_query.py sector 电力 [--days 5]   # 板块近N日K线+区间涨跌幅
+  python3 scripts/a_stock_query.py reports 600519     # 券商研报: 评级/机构/盈利预测
+  python3 scripts/a_stock_query.py margin 600519      # 融资融券余额近5日
+  python3 scripts/a_stock_query.py search CPO         # 名称联想（个股+板块）
+  python3 scripts/a_stock_query.py chip 600519        # 筹码分布（需 akshare）
+  python3 scripts/a_stock_query.py block 600519       # 大宗交易（需 akshare）
 """
 
 import argparse
+import datetime
 import json
 import subprocess
 import sys
-import os
+import urllib.parse
+import urllib.request
 
-SKILL_DIR = os.path.dirname(os.path.abspath(__file__))
-CACHE_FILE = os.path.join(SKILL_DIR, ".token_cache")
+UA = ("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+      "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36")
+TIMEOUT = 15
 
-def load_token():
-    """加载已缓存的 token"""
-    if os.path.exists(CACHE_FILE):
-        with open(CACHE_FILE) as f:
-            return f.read().strip()
+# ---------------- 数据源端点 ----------------
+SUGGEST_URL = ("https://searchapi.eastmoney.com/api/suggest/get"
+               "?input={kw}&type=14&token=D43BF722C8E33BDC906FB84D85E326E8")
+EM_STOCK = ("https://push2.eastmoney.com/api/qt/stock/get"
+            "?secid={secid}&fltt=2&invt=2&fields=f43,f57,f58,f169,f170,f162,f167,f116,f117,f62")
+EM_KLINE = ("https://push2his.eastmoney.com/api/qt/stock/kline/get"
+            "?secid={secid}&klt=101&fqt=1&lmt={lmt}&end=20500101"
+            "&fields1=f1,f2,f3&fields2=f51,f53,f56,f57")
+TX_QUOTE = "https://qt.gtimg.cn/q={mkt}{code}"
+REPORT_URL = ("https://reportapi.eastmoney.com/report/list"
+              "?pageSize={n}&pageNo=1&code={code}&industryCode=*&industry=*"
+              "&rating=*&ratingchange=*&beginTime={begin}&endTime={end}&qType=0")
+MARGIN_URL = ("https://datacenter-web.eastmoney.com/api/data/v1/get"
+              "?reportName=RPTA_WEB_RZRQ_GGMX&columns=ALL"
+              "&filter=(scode%3D%22{code}%22)&sortColumns=DATE&sortTypes=-1"
+              "&pageSize={n}&pageNumber=1")
+
+NET_HINT = ("数据源暂不可达（可能为网络/地域限制或临时限流）。"
+            "请改用：1) 智能体自带的财经 MCP 工具；2) 网络检索该关键词（见 SKILL.md 三级数据策略）。")
+
+
+# ---------------- 传输层：urllib → curl 自动降级 + 重试 ----------------
+def _fetch_once(url: str, decode: str):
+    try:
+        req = urllib.request.Request(url, headers={"User-Agent": UA,
+                                                   "Referer": "https://quote.eastmoney.com/"})
+        with urllib.request.urlopen(req, timeout=TIMEOUT) as resp:
+            return resp.read().decode(decode, "ignore")
+    except Exception as e:  # noqa: BLE001
+        print(f"[warn] urllib: {e}，降级 curl", file=sys.stderr)
+    try:
+        out = subprocess.run(["curl", "-s", "--max-time", str(TIMEOUT), "-A", UA, url],
+                             capture_output=True, timeout=TIMEOUT + 5)
+        if out.returncode == 0 and out.stdout:
+            return out.stdout.decode(decode, "ignore")
+    except Exception as e:  # noqa: BLE001
+        print(f"[warn] curl: {e}", file=sys.stderr)
     return None
 
-def save_token(token):
-    """缓存 token"""
-    with open(CACHE_FILE, "w") as f:
-        f.write(token)
 
-def query_neodata(query: str, data_type: str = "api") -> dict:
-    """通过 neodata-financial-search 查询"""
-    script = os.path.join(
-        os.path.dirname(SKILL_DIR),
-        "neodata-financial-search/scripts/query.py"
-    )
-    cmd = [
-        "/Users/fadewalk/.workbuddy/binaries/python/envs/default/bin/python3",
-        script,
-        "--query", query,
-        "--data-type", data_type,
-    ]
-    token = load_token()
-    if token:
-        cmd.extend(["--save-token", token])
+def _fetch(url: str, decode="utf-8", retries=3):
+    """GET 并按指定编码解码文本。urllib 失败（TLS拦截等）自动降级系统 curl，
+    并对间歇性网络失败做最多 retries 次重试（1s 退避）。"""
+    import time
+    for i in range(retries):
+        text = _fetch_once(url, decode)
+        if text:
+            return text
+        if i < retries - 1:
+            time.sleep(1)
+    return None
 
-    result = subprocess.run(cmd, capture_output=True, text=True)
-    if result.returncode != 0:
-        return {"error": result.stderr}
 
+def _get_json(url: str):
+    text = _fetch(url)
+    if not text:
+        return None
     try:
-        return json.loads(result.stdout)
+        return json.loads(text)
     except json.JSONDecodeError:
-        return {"raw": result.stdout[:2000]}
+        return None
 
-def query_sector(sector_name: str) -> dict:
-    """查询板块行情+资金流向"""
-    return query_neodata(f"{sector_name} 板块 行情 资金流向")
 
-def query_stock(stock_name: str) -> dict:
-    """查询个股行情"""
-    return query_neodata(f"{stock_name} 股价 行情")
+def _fail(result=None):
+    print(json.dumps(result or {"error": NET_HINT}, ensure_ascii=False))
+    sys.exit(2)
 
-def query_supply_chain(material: str) -> dict:
-    """查询供应链卡脖子情况"""
-    return query_neodata(f"{material} 供需缺口 国产替代 扩产周期")
 
-def query_policy(sector: str) -> dict:
-    """查询政策催化"""
-    return query_neodata(f"{sector} 政府工作报告 政策 文件")
+def _fmt_amount(v):
+    if v is None:
+        return None
+    v = float(v)
+    if abs(v) >= 1e8:
+        return f"{v / 1e8:.2f}亿"
+    if abs(v) >= 1e4:
+        return f"{v / 1e4:.2f}万"
+    return f"{v:.0f}"
 
-def query_report(stock_name: str) -> dict:
-    """查询研报信号"""
-    return query_neodata(f"{stock_name} 券商研报 评级 目标价")
+
+# ---------------- 名称/代码解析 ----------------
+def _guess_secid(code: str):
+    """纯数字代码且联想接口不可用时，按规则推断东财 secid"""
+    if code.startswith(("6", "9")):
+        return {"code": code, "name": None, "quote_id": f"1.{code}", "is_board": False,
+                "mkt": "sh"}
+    if code.startswith(("0", "2", "3")):
+        return {"code": code, "name": None, "quote_id": f"0.{code}", "is_board": False,
+                "mkt": "sz"}
+    return None
+
+
+def resolve(keyword: str):
+    """名称/代码/拼音 → 统一标识 {code,name,quote_id,is_board,mkt}"""
+    d = _get_json(SUGGEST_URL.format(kw=urllib.parse.quote(keyword)))
+    rows = (d or {}).get("QuotationCodeTable", {}).get("Data") or []
+    hit = None
+    for r in rows:                      # 优先精确代码命中
+        if r.get("Code") == keyword:
+            hit = r
+            break
+    hit = hit or (rows[0] if rows else None)
+    if hit:
+        qid = hit.get("QuoteID", "")
+        mkt = {"1": "sh", "0": "sz"}.get(qid.split(".")[0], "sh")
+        return {"code": hit.get("Code"), "name": hit.get("Name"), "quote_id": qid,
+                "is_board": qid.startswith("90."), "mkt": mkt}
+    return _guess_secid(keyword) if keyword.isdigit() else None
+
+
+# ---------------- 命令实现 ----------------
+def cmd_stock(keyword: str):
+    t = resolve(keyword)
+    if not t or t["is_board"]:
+        _fail({"error": f"未找到个股: {keyword}，请先用 search 命令确认代码"})
+
+    # 主源：东方财富（含主力净流入）
+    d = (_get_json(EM_STOCK.format(secid=t["quote_id"])) or {}).get("data")
+    if d and d.get("f43") is not None:
+        return {"source": "eastmoney", "code": d.get("f57"), "name": d.get("f58"),
+                "price": d.get("f43"), "pct_change": d.get("f170"),
+                "pe_ttm": d.get("f162"), "pb": d.get("f167"),
+                "total_mv": _fmt_amount(d.get("f116")),
+                "float_mv": _fmt_amount(d.get("f117")),
+                "main_inflow_today": _fmt_amount(d.get("f62"))}
+
+    # 降级源：腾讯行情
+    text = _fetch(TX_QUOTE.format(mkt=t["mkt"], code=t["code"]), decode="gbk")
+    if text and "~" in text:
+        f = text.split('"')[1].split("~")
+        if len(f) > 53 and f[3]:
+            return {"source": "tencent", "code": t["code"], "name": f[1],
+                    "price": float(f[3]), "pct_change": float(f[32]),
+                    "pe_ttm": float(f[39]), "pb": float(f[46]),
+                    "total_mv": f"{f[45]}亿", "float_mv": f"{f[44]}亿",
+                    "turnover_pct": float(f[38]), "volume_hand": float(f[36]),
+                    "main_inflow_today": None,
+                    "note": "主力净流入本源不提供，可用 margin 命令或网络检索补充"}
+    _fail()
+
+
+def cmd_sector(keyword: str, days: int = 5):
+    t = resolve(keyword)
+    if not t:
+        _fail({"error": f"未找到板块: {keyword}，请先用 search 命令确认"})
+    if not t["is_board"]:
+        t = {"quote_id": t["quote_id"], "code": t["code"], "name": t["name"]}  # 个股也照查K线
+    d = (_get_json(EM_KLINE.format(secid=t["quote_id"], lmt=days)) or {}).get("data")
+    klines = []
+    if d and d.get("klines"):
+        for line in d["klines"]:
+            dt, close, vol, amt = line.split(",")
+            klines.append({"date": dt, "close": float(close), "volume_hand": int(vol),
+                           "amount": _fmt_amount(float(amt))})
+    if not klines:
+        _fail({"error": "板块K线数据源（东财 push2his）暂不可达。"
+                        "请改用智能体财经工具或网络检索『{kw} 板块 行情 资金流向』".format(kw=keyword)})
+    pct = round((klines[-1]["close"] / klines[0]["close"] - 1) * 100, 2) if len(klines) >= 2 else None
+    return {"code": d.get("code"), "name": d.get("name"), "window_days": days,
+            "range_pct": pct, "klines": klines,
+            "note": "range_pct 为区间涨跌幅；板块实时资金流请配合网络检索"}
+
+
+def cmd_reports(keyword: str, n: int = 8):
+    t = resolve(keyword)
+    if not t or t["is_board"]:
+        _fail({"error": f"未找到个股: {keyword}"})
+    end = datetime.date.today()
+    begin = end - datetime.timedelta(days=180)
+    d = _get_json(REPORT_URL.format(code=t["code"], n=n, begin=begin, end=end))
+    rows = [{"date": (r.get("publishDate") or "")[:10], "title": r.get("title"),
+             "org": r.get("orgSName"),
+             "rating": r.get("emRatingName") or r.get("sRatingName"),
+             "eps_forecast": r.get("predictThisYearEps"),
+             "pe_forecast": r.get("predictThisYearPe")}
+            for r in (d or {}).get("data") or []]
+    if not rows:
+        _fail({"error": "研报数据暂不可达，请网络检索『公司名 券商研报 评级 目标价』"})
+    return {"code": t["code"], "name": t["name"], "count": len(rows), "reports": rows,
+            "note": "研报开始覆盖 = 机构关注度信号（六步法第五步做多信号）"}
+
+
+def cmd_margin(keyword: str, n: int = 5):
+    t = resolve(keyword)
+    if not t or t["is_board"]:
+        _fail({"error": f"未找到个股: {keyword}"})
+    d = _get_json(MARGIN_URL.format(code=t["code"], n=n))
+    rows = [{"date": (r.get("DATE") or "")[:10],
+             "margin_balance": _fmt_amount(r.get("RZYE")),
+             "margin_net_buy": _fmt_amount(r.get("RZJME")),
+             "rzrq_total": _fmt_amount(r.get("RZRQYE"))}
+            for r in ((d or {}).get("result") or {}).get("data") or []]
+    if not rows:
+        _fail({"error": "两融数据暂不可达，请网络检索『代码 融资余额』"})
+    return {"code": t["code"], "name": t["name"], "count": len(rows), "rows": rows,
+            "note": "融资余额连续上升 = 杠杆资金看多；连续下降需警惕"}
+
+
+def cmd_search(keyword: str):
+    d = _get_json(SUGGEST_URL.format(kw=urllib.parse.quote(keyword)))
+    rows = [{"code": r.get("Code"), "name": r.get("Name"),
+             "type": "板块" if r.get("QuoteID", "").startswith("90.") else "个股",
+             "quote_id": r.get("QuoteID")}
+            for r in ((d or {}).get("QuotationCodeTable") or {}).get("Data") or []]
+    if not rows:
+        _fail({"error": f"无匹配或接口不可达: {keyword}。"
+                        "可能是俗称/概念叫法与东财板块库不一致，建议：1) 换近义关键词重试"
+                        "（如 光模块→CPO、光通信）；2) 用网络检索『{kw} 板块 行情』兜底".format(kw=keyword)})
+    return {"keyword": keyword, "matches": rows}
+
+
+# ---------------- akshare 可选增强 ----------------
+def _ak_available():
+    try:
+        import akshare  # noqa: F401
+        return True
+    except ImportError:
+        return False
+
+
+def cmd_chip(keyword: str):
+    if not _ak_available():
+        _fail({"error": "筹码分布需可选依赖 akshare：pip install akshare；"
+                        "或网络检索『代码 筹码分布 股东人数』"})
+    import akshare as ak
+    t = resolve(keyword)
+    if not t or t["is_board"]:
+        _fail({"error": f"未找到个股: {keyword}"})
+    df = ak.stock_cyq_em(symbol=t["code"], adjust="")
+    return {"code": t["code"], "name": t["name"],
+            "chip_distribution": json.loads(df.to_json(orient="records", force_ascii=False)),
+            "note": "获利盘比例升高+筹码集中 = 主力控盘信号"}
+
+
+def cmd_block(keyword: str):
+    if not _ak_available():
+        _fail({"error": "大宗交易需可选依赖 akshare：pip install akshare；"
+                        "或网络检索『代码 大宗交易 折价率』"})
+    import akshare as ak
+    t = resolve(keyword)
+    if not t or t["is_board"]:
+        _fail({"error": f"未找到个股: {keyword}"})
+    df = ak.stock_dzjy_mrmx(symbol=t["code"])
+    return {"code": t["code"], "name": t["name"],
+            "block_trades": json.loads(df.tail(20).to_json(orient="records", force_ascii=False)),
+            "note": "机构专用席位接货+低折价 = 建仓信号"}
+
 
 def main():
-    parser = argparse.ArgumentParser(description="Serenity A股框架通用查询")
-    parser.add_argument("--query", "-q", required=True, help="查询内容")
-    parser.add_argument("--type", "-t", default="stock",
-                        choices=["sector", "stock", "supply", "policy", "report"],
-                        help="查询类型")
+    parser = argparse.ArgumentParser(description="Serenity A股框架 · 独立数据查询（零依赖多源冗余）")
+    sub = parser.add_subparsers(dest="command", required=True)
+    specs = [("stock", cmd_stock, "个股名称/代码/拼音"),
+             ("sector", cmd_sector, "板块或个股名称"),
+             ("reports", cmd_reports, "个股名称/代码"),
+             ("margin", cmd_margin, "个股名称/代码"),
+             ("search", cmd_search, "任意关键词"),
+             ("chip", cmd_chip, "个股代码"),
+             ("block", cmd_block, "个股代码")]
+    for name, _, help_ in specs:
+        sub.add_parser(name).add_argument("target", help=help_)
+    sub.choices["sector"].add_argument("--days", type=int, default=5, help="K线天数，默认5")
     args = parser.parse_args()
 
-    query_map = {
-        "sector": (query_sector, args.query),
-        "stock": (query_stock, args.query),
-        "supply": (query_supply_chain, args.query),
-        "policy": (query_policy, args.query),
-        "report": (query_report, args.query),
-    }
+    handlers = {name: fn for name, fn, _ in specs}
+    kwargs = {"days": args.days} if args.command == "sector" else {}
+    print(f"[查询] {args.command} {args.target}", file=sys.stderr)
+    print(json.dumps(handlers[args.command](args.target, **kwargs), ensure_ascii=False, indent=2))
 
-    handler, q = query_map[args.type]
-    print(f"[查询] {q}", file=sys.stderr)
-    result = handler(q)
-    print(json.dumps(result, ensure_ascii=False, indent=2))
 
 if __name__ == "__main__":
     main()
