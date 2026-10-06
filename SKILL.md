@@ -6,6 +6,9 @@ description: |
   并筛选该环节中具备技术壁垒和资本信号的小盘股。
 
   触发词：分析XX板块、找XX卡脖子、serenity分析、A股/美股/港股瓶颈产业链
+  EN triggers: analyze [sector] choke points / find bottlenecks in [industry]
+  JP triggers: [セクター] のボトルネックを分析
+  KR triggers: [산업] 의 병목 지점 분석
 
   适用板块示例：电力、光模块、医疗器械、半导体设备、军工、新能源车等任意板块；
   港美股示例：InP衬底（AXTI）、CPO激光器（AAOI）、AI算力链（NVDA/TSM）
@@ -23,7 +26,7 @@ market: A-share, HK-stock, US-stock
 version: 3.2.1
 ---
 
-# Serenity 卡脖子框架 · 通用版 v3.2（A股 / 港股 / 美股）
+# Serenity 卡脖子框架 · 通用版 v3.2.1（A股 / 港股 / 美股）
 
 ## 你的核心使命
 

@@ -32,6 +32,8 @@
 
 # Serenity Stock Choke · A股/港股/美股 卡脖子选股框架
 
+<p align="center"><b>简体中文</b> · <a href="README.en.md">English</a> · <a href="README.ja.md">日本語</a> · <a href="README.ko.md">한국어</a></p>
+
 > "**沿着产业链向上游追溯，找到那个'一旦断货，万亿产业就要地震'的关键节点——那个节点上的小盘股，就是下一个暴击机会。**"
 
 本 Skill 基于 Reddit 传奇人物 **Serenity（@aleabitoreddit）** 的供应链瓶颈理论，覆盖 **A 股、港股、美股**三大市场，形成一套通用的产业链分析框架（Serenity 原版战例本就在美股，A股为本土化适配）。
@@ -191,7 +193,10 @@ git clone https://github.com/fadewalk/serenity-stock-choke.git ~/.claude/skills/
 ```
 serenity-stock-choke/
 ├── SKILL.md                    # 主提示词（六步推理链路 + 三级数据策略 + 跨市场支持）
-├── README.md                   # 本文件
+├── README.md                   # 本文件（简体中文）
+├── README.en.md                # English
+├── README.ja.md                # 日本語
+├── README.ko.md                # 한국어
 ├── .claude-plugin/             # Claude Code 插件市场一键安装
 │   ├── plugin.json
 │   └── marketplace.json
