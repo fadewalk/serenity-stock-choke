@@ -215,6 +215,7 @@ serenity-stock-choke/
 
 ## 参考资料
 
+- [yan-labs/serenity-aleabitoreddit](https://github.com/yan-labs/serenity-aleabitoreddit) — Serenity 推文语料蒸馏（2025-07→2026-09：6,592 条推文 + 4 篇长文，含方法论与战绩时间线）
 - [Serenity 原版 Skill（英文）](https://github.com/leslieyeo/aleabitoreddit-skill)
 - [semiconstocks.com 追踪器](https://semiconstocks.com/zh)
 - [Singularity Research Fund](https://singularityresearchfund.substack.com)

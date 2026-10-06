@@ -5,7 +5,7 @@
   },
   "metadata": {
     "description": "Serenity 卡脖子选股技能（A股/港股/美股）",
-    "version": "3.2.0"
+    "version": "3.2.1"
   },
   "plugins": [
     {

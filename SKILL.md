@@ -20,7 +20,7 @@ license: MIT
 topics: [agent-skills, a-stock, us-stock, hk-stock, choke-point, supply-chain, serenity, stock-picking]
 framework: Serenity Choke Point Theory
 market: A-share, HK-stock, US-stock
-version: 3.2
+version: 3.2.1
 ---
 
 # Serenity 卡脖子框架 · 通用版 v3.2（A股 / 港股 / 美股）
@@ -187,6 +187,7 @@ python3 scripts/a_stock_query.py block 600519        # 大宗交易（需 pip in
 |---------|-------------|
 | ✅ 板块主力净流入持续 | ❌ 板块主力净流出 |
 | ✅ 机构开始覆盖（研报出现） | ❌ 无研报、无人问津 |
+| ✅ 论点公开后 5–60 交易日内出现订单/文件/机构持仓验证 | ❌ 只有上涨与媒体报道、无验证（victory lap = 周期后段） |
 | ✅ 产能建设周期>2年（壁垒高） | ❌ 产能半年可达 |
 | ✅ 政策明确支持（文件/补贴） | ❌ 政策压制 |
 | ✅ 筹码集中度提升（股东户数下降） | ❌ 股东人数暴增 |
@@ -233,7 +234,7 @@ python3 scripts/a_stock_query.py block 600519        # 大宗交易（需 pip in
 
 ## Serenity 原版框架（参考）
 
-> Serenity（@aleabitoreddit）是 Reddit WallStreetBets 传奇人物，以"RISC-V+AI"框架在2019-2024年间实现约3800%收益率。他的核心方法论：
+> Serenity（@aleabitoreddit）是 Reddit WallStreetBets 传奇人物，以"RISC-V+AI"框架在2019-2024年间实现约3800%收益率（自报数据，未经独立审计）。他的核心方法论：
 
 ### 核心逻辑
 
@@ -267,6 +268,24 @@ AI大爆发 → 上游硬件需求暴增 →
 2. **流动性风险**：建仓/清仓时股价波动剧烈
 3. **时间成本**：逻辑验证可能需要1-3年
 4. **信号噪音**：供应链消息真真假假，需要独立验证
+
+### 框架 2026 进化（推文语料蒸馏，2025-07 → 2026-09）
+
+Serenity 至今高度活跃。第三方语料库
+[yan-labs/serenity-aleabitoreddit](https://github.com/yan-labs/serenity-aleabitoreddit)
+将其 6,592 条推文与 4 篇长文蒸馏后，可提炼出三点新进化（已吸收进本技能）：
+
+1. **瓶颈地图扩圈**：从 InP 衬底/CPO 激光器等硬件，扩展到 **存储/HBM/NAND、
+   AI 电力/电网约束、neocloud（新兴云厂商）融资质量、机器人/物理 AI**。
+   本技能"电力板块"示例即命中其 2026 年主线——分析新板块时按同样思路延展即可。
+2. **帖子四分类**（判断信号权重，从高到低）：
+   **新瓶颈论点**（依赖关系新鲜+未被定价+有客户/产能/政策/文件证据）
+   > 重申/回调买入 > 供给图/观察名单（仅作研究输入）
+   > **庆祝行情 victory lap（主流媒体开始集中报道 = 往往是周期后段）**
+   —— 看到"理论被吹爆"本身就该转向谨慎，这与本技能拥挤度预警同源。
+3. **时效窗口**：论点公开到被验证（订单/文件/机构持仓出现）通常需
+   **5–60 个交易日**——卡脖子是左侧逻辑，不是"明天就涨"；没有验证迹象的
+   单边上涨按第五步做空信号处理。
 
 ---
 
