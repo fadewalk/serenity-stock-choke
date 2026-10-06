@@ -96,18 +96,37 @@
 
 ## 快速开始
 
-### 一键安装（三选一）
+### 安装方式
 
-```bash
-# 方式一：Claude Code 插件市场（推荐，安装后自动启用）
-# 在 Claude Code 中依次执行：
+#### 方式零：一句话扔给 AI 智能体（最简单）
+
+把下面这段话直接粘贴给 Claude Code / Codex / 任意能执行命令的智能体，
+它会自己克隆、安装、验证并告诉你怎么用：
+
+```
+帮我安装 https://github.com/fadewalk/serenity-stock-choke 这个技能：
+克隆仓库到当前智能体的技能目录（Claude Code 是 ~/.claude/skills/，
+Codex 等其他智能体是 .agents/skills/，拿不准就参考仓库 README），
+装好后运行 python3 <技能目录>/scripts/a_stock_query.py stock 600519 验证，
+然后告诉我这个技能怎么触发、能干什么。
+```
+
+#### 方式一：Claude Code 插件市场
+
+```
 /plugin marketplace add fadewalk/serenity-stock-choke
 /plugin install serenity-stock-choke@serenity-stock-choke
+```
 
-# 方式二：skills.sh 安装器（Claude Code / Codex / Cursor 等通用）
+#### 方式二：skills.sh 安装器（Claude Code / Codex / Cursor 等通用）
+
+```bash
 npx skills add fadewalk/serenity-stock-choke
+```
 
-# 方式三：手动 git clone
+#### 方式三：手动 git clone
+
+```bash
 git clone https://github.com/fadewalk/serenity-stock-choke.git ~/.claude/skills/serenity-stock-choke
 ```
 
