@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Serenity A股/港美股框架 · 独立数据查询脚本（零依赖，多源冗余）
+Serenity 卡脖子框架 · 独立数据查询脚本（A股/港股/美股，零依赖，多源冗余）
 
 不依赖任何智能体平台（WorkBuddy/Claude Code/Codex 均可调用），无需 API Key，
 仅用 Python 标准库 + 公开财经接口；akshare 为可选增强（筹码/大宗）。
