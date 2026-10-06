@@ -7,17 +7,22 @@ Serenity 卡脖子框架 · 独立数据查询脚本（A股/港股/美股，零�
 
 数据源（按稳定性排序，自动降级）：
   行情快照   东方财富 push2 → 腾讯 qt.gtimg.cn（A股/港股/美股均支持）
-  板块K线    东方财富 push2his（仅A股板块；不可用时提示改用网络检索）
+  估值分位   东方财富 datacenter 估值分析（PE/PB/PS 日度历史 → 百分位，仅A股）
+  K线风险    东方财富 push2his（三市场通用；不可用时提示改用网络检索）
+  主营构成   东方财富 F10（收入占比/毛利率，仅A股）
   名称联想   东方财富 searchapi（自动识别 A股/港股/美股）
   券商研报   东方财富 reportapi（仅A股）
   融资融券   东方财富 datacenter-web（仅A股）
   筹码/大宗  akshare（可选安装，仅A股）
 
-用法（结果均为 JSON，可直接被智能体解析）:
-  python3 scripts/a_stock_query.py stock 贵州茅台     # A股快照: 价格/涨跌幅/PE/PB/市值/主力净流入
+用法（结果均为 JSON，可直接被智能体解析；成功输出均带 as_of 数据时点）:
+  python3 scripts/a_stock_query.py stock 贵州茅台     # A股快照: 价格/涨跌幅/PE/PB/市值/主力净流入/成交额
   python3 scripts/a_stock_query.py stock 00700        # 港股: 腾讯控股(HKD)
   python3 scripts/a_stock_query.py stock AAPL         # 美股: 苹果(USD)
   python3 scripts/a_stock_query.py search 英伟达       # 名称联想（A股+港股+美股+板块）
+  python3 scripts/a_stock_query.py valuation 600519   # 历史估值分位: PE/PB百分位（仅A股）
+  python3 scripts/a_stock_query.py kline 300308 [--days 250]  # 动量/年化波动/最大回撤（三市场）
+  python3 scripts/a_stock_query.py business 600519    # 主营构成: 收入占比/毛利率（仅A股）
   python3 scripts/a_stock_query.py sector 电力 [--days 5]   # A股板块近N日K线+区间涨跌幅
   python3 scripts/a_stock_query.py reports 600519     # A股券商研报: 评级/机构/盈利预测
   python3 scripts/a_stock_query.py margin 600519      # A股融资融券余额近5日
@@ -41,10 +46,15 @@ TIMEOUT = 15
 SUGGEST_URL = ("https://searchapi.eastmoney.com/api/suggest/get"
                "?input={kw}&type=14&token=D43BF722C8E33BDC906FB84D85E326E8")
 EM_STOCK = ("https://push2.eastmoney.com/api/qt/stock/get"
-            "?secid={secid}&fltt=2&invt=2&fields=f43,f57,f58,f169,f170,f162,f167,f116,f117,f62")
+            "?secid={secid}&fltt=2&invt=2&fields=f43,f57,f58,f169,f170,f162,f167,f116,f117,f62,f6,f8")
 EM_KLINE = ("https://push2his.eastmoney.com/api/qt/stock/kline/get"
             "?secid={secid}&klt=101&fqt=1&lmt={lmt}&end=20500101"
             "&fields1=f1,f2,f3&fields2=f51,f53,f56,f57")
+VALUATION_URL = ("https://datacenter-web.eastmoney.com/api/data/v1/get"
+                 "?reportName=RPT_VALUEANALYSIS_DET&columns=ALL"
+                 "&filter=(SECURITY_CODE%3D%22{code}%22)&sortColumns=TRADE_DATE&sortTypes=-1"
+                 "&pageSize={n}&pageNumber=1&source=WEB&client=WEB")
+F10_URL = "https://emweb.securities.eastmoney.com/PC_HSF10/BusinessAnalysis/PageAjax?code={code}"
 TX_QUOTE = "https://qt.gtimg.cn/q={symbol}"
 REPORT_URL = ("https://reportapi.eastmoney.com/report/list"
               "?pageSize={n}&pageNo=1&code={code}&industryCode=*&industry=*"
@@ -114,6 +124,12 @@ def _fmt_amount(v):
     if abs(v) >= 1e4:
         return f"{v / 1e4:.2f}万"
     return f"{v:.0f}"
+
+
+def _percentile(values, current):
+    """当前值在历史序列中的分位（%的历史交易日低于当前值）"""
+    below = sum(1 for v in values if v is not None and v < current)
+    return round(below / len(values) * 100, 1) if values else None
 
 
 # ---------------- 名称/代码解析 ----------------
@@ -205,9 +221,12 @@ def cmd_stock(keyword: str):
                "float_mv": _fmt_amount(d.get("f117"))}
         if t["market"] == "cn":
             out["main_inflow_today"] = _fmt_amount(d.get("f62"))
+            out["amount_today"] = _fmt_amount(d.get("f6"))
+            out["turnover_pct"] = d.get("f8")
         else:
             out["currency"] = "HKD" if t["market"] == "hk" else "USD"
             out["note"] = "港美股公开接口不提供主力资金流；信号获取见 SKILL.md 跨市场章节"
+        _mark_st(out)
         return out
 
     # 降级源：腾讯行情（A股/港股/美股）
@@ -216,18 +235,28 @@ def cmd_stock(keyword: str):
         f = text.split('"')[1].split("~")
         if t["market"] == "cn":
             if len(f) > 53 and f[3]:
-                return {"source": "tencent", "market": "cn", "code": t["code"],
-                        "name": f[1], "price": float(f[3]), "pct_change": float(f[32]),
-                        "pe_ttm": float(f[39]), "pb": float(f[46]),
-                        "total_mv": f"{f[45]}亿", "float_mv": f"{f[44]}亿",
-                        "turnover_pct": float(f[38]), "volume_hand": float(f[36]),
-                        "main_inflow_today": None,
-                        "note": "主力净流入本源不提供，可用 margin 命令或网络检索补充"}
+                out = {"source": "tencent", "market": "cn", "code": t["code"],
+                       "name": f[1], "price": float(f[3]), "pct_change": float(f[32]),
+                       "pe_ttm": float(f[39]), "pb": float(f[46]),
+                       "total_mv": f"{f[45]}亿", "float_mv": f"{f[44]}亿",
+                       "turnover_pct": float(f[38]), "volume_hand": float(f[36]),
+                       "amount_today": _fmt_amount(float(f[37]) * 1e4) if f[37] else None,
+                       "main_inflow_today": None,
+                       "note": "主力净流入本源不提供，可用 margin 命令或网络检索补充"}
+                _mark_st(out)
+                return out
         else:
             out = _tx_parse_hk_us(f, t["market"], t)
             if out:
                 return out
     _fail()
+
+
+def _mark_st(out: dict):
+    """ST/退市风险警示标注（排除规则7）"""
+    if out.get("name") and "ST" in str(out["name"]).upper():
+        out["is_st"] = True
+        out["st_warning"] = "ST风险警示股：按六步法排除规则7直接剔除"
 
 
 def cmd_sector(keyword: str, days: int = 5):
@@ -291,7 +320,8 @@ def cmd_margin(keyword: str, n: int = 5):
     if not rows:
         _fail({"error": "两融数据暂不可达，请网络检索『代码 融资余额』"})
     return {"code": t["code"], "name": t["name"], "count": len(rows), "rows": rows,
-            "note": "融资余额连续上升 = 杠杆资金看多；连续下降需警惕"}
+            "note": "两融解读要结合股价位置：低位回升=多头确认；"
+                    "高位暴增=拥挤预警（警惕反转）；连续下降=杠杆退潮"}
 
 
 def cmd_search(keyword: str):
@@ -310,6 +340,102 @@ def cmd_search(keyword: str):
                         "可能是俗称/概念叫法与东财板块库不一致，建议：1) 换近义关键词重试"
                         "（如 光模块→CPO、光通信）；2) 用网络检索『{kw} 板块 行情』兜底".format(kw=keyword)})
     return {"keyword": keyword, "matches": rows}
+
+
+def cmd_valuation(keyword: str, years: int = 3):
+    """历史估值分位（PE/PB/PS）——第四步规则5、第五步估值分位信号的定量支撑"""
+    t = _require_cn_stock(keyword)
+    n = min(int(years) * 250 + 30, 2000)
+    d = _get_json(VALUATION_URL.format(code=t["code"], n=n))
+    rows = ((d or {}).get("result") or {}).get("data") or []
+    if not rows:
+        _fail({"error": "估值历史数据暂不可达，请网络检索『{c} 市盈率 历史分位』".format(c=t["code"])})
+    rows = sorted(rows, key=lambda r: r.get("TRADE_DATE") or "", reverse=True)
+    cur = rows[0]
+
+    def stat(field):
+        series = [r.get(field) for r in rows if isinstance(r.get(field), (int, float))]
+        if not series or cur.get(field) is None:
+            return None
+        s = sorted(series)
+        return {"current": round(cur[field], 2),
+                "percentile": _percentile(series, cur[field]),
+                "median": round(s[len(s) // 2], 2),
+                "min": round(min(series), 2), "max": round(max(series), 2)}
+
+    return {"code": t["code"], "name": t["name"],
+            "data_date": (cur.get("TRADE_DATE") or "")[:10],
+            "history_span": f"{(rows[-1].get('TRADE_DATE') or '')[:10]} ~ "
+                            f"{(rows[0].get('TRADE_DATE') or '')[:10]}",
+            "samples": len(rows),
+            "pe_ttm": stat("PE_TTM"), "pb": stat("PB_MRQ"), "ps_ttm": stat("PS_TTM"),
+            "note": "percentile = %的历史交易日低于当前值（分位数）。"
+                    "<30% 偏低估；>80% 触发第五步做空信号『估值已充分反映』"}
+
+
+def cmd_kline(keyword: str, days: int = 250):
+    """历史K线风险统计：区间涨跌/年化波动/最大回撤/动量（A股/港股/美股通用）"""
+    t = resolve(keyword)
+    if not t:
+        _fail({"error": f"未找到标的: {keyword}，请先用 search 命令确认"})
+    d = (_get_json(EM_KLINE.format(secid=t["quote_id"], lmt=days)) or {}).get("data")
+    closes = [float(line.split(",")[1]) for line in (d or {}).get("klines") or []]
+    if len(closes) < 5:
+        _fail({"error": "K线数据源暂不可达（东财 push2his 限流/地域限制）。"
+                        "请改用智能体行情工具或网络检索『{kw} 股价 历史走势』".format(kw=keyword)})
+    rets = [closes[i] / closes[i - 1] - 1 for i in range(1, len(closes))]
+    mean = sum(rets) / len(rets)
+    var = sum((r - mean) ** 2 for r in rets) / (len(rets) - 1) if len(rets) > 1 else 0.0
+    peak, mdd = closes[0], 0.0
+    for c in closes:
+        peak = max(peak, c)
+        mdd = min(mdd, c / peak - 1)
+    out = {"code": t["code"], "name": t["name"], "market": t["market"],
+           "bars": len(closes),
+           "range_pct": round((closes[-1] / closes[0] - 1) * 100, 2),
+           "ann_vol_pct": round((var ** 0.5) * (250 ** 0.5) * 100, 2),
+           "max_drawdown_pct": round(mdd * 100, 2),
+           "mom_20d_pct": round((closes[-1] / closes[-21] - 1) * 100, 2) if len(closes) > 20 else None,
+           "mom_60d_pct": round((closes[-1] / closes[-61] - 1) * 100, 2) if len(closes) > 60 else None,
+           "last_close": closes[-1],
+           "note": "风险统计基于前复权日线。年化波动>60%或最大回撤>50%的小盘标的，"
+                   "仓位须按报告第八部分组合约束打折"}
+    if t["market"] != "cn":
+        out["currency"] = "HKD" if t["market"] == "hk" else "USD"
+    return out
+
+
+_F10_TYPE = {"1": "按行业", "2": "按产品", "3": "按地区"}
+
+
+def _f10_code(t: dict) -> str:
+    return ("SH" if t["quote_id"].startswith("1.") else "SZ") + str(t["code"])
+
+
+def cmd_business(keyword: str):
+    """主营构成（F10）——第四步排除规则1『是否蹭热点』的定量支撑"""
+    t = _require_cn_stock(keyword)
+    d = _get_json(F10_URL.format(code=_f10_code(t)))
+    rows = (d or {}).get("zygcfx") or []
+    if not rows:
+        _fail({"error": "主营构成数据暂不可达，请网络检索『{n} 主营构成 收入占比』".format(n=t["name"] or t["code"])})
+    latest = max((r.get("REPORT_DATE") or "")[:10] for r in rows)
+    by_type = {}
+    for r in rows:
+        if (r.get("REPORT_DATE") or "")[:10] != latest:
+            continue
+        mtype = _F10_TYPE.get(r.get("MAINOP_TYPE"), r.get("MAINOP_TYPE"))
+        by_type.setdefault(mtype, []).append({
+            "item": r.get("ITEM_NAME"),
+            "income_ratio_pct": round(r["MBI_RATIO"] * 100, 2) if r.get("MBI_RATIO") is not None else None,
+            "gross_margin_pct": round(r["GROSS_RPOFIT_RATIO"] * 100, 2) if r.get("GROSS_RPOFIT_RATIO") is not None else None,
+        })
+    for v in by_type.values():
+        v.sort(key=lambda x: x["income_ratio_pct"] or 0, reverse=True)
+        del v[8:]
+    return {"code": t["code"], "name": t["name"], "report_date": latest,
+            "composition": by_type,
+            "note": "『蹭热点』判定：卡脖子相关业务收入占比<15%且无毛利优势 → 排除规则1剔除"}
 
 
 # ---------------- akshare 可选增强 ----------------
@@ -346,24 +472,36 @@ def cmd_block(keyword: str):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Serenity A股框架 · 独立数据查询（零依赖多源冗余）")
+    parser = argparse.ArgumentParser(
+        description="Serenity 卡脖子框架 · 独立数据查询（A股/港股/美股，零依赖，多源冗余）")
     sub = parser.add_subparsers(dest="command", required=True)
-    specs = [("stock", cmd_stock, "个股名称/代码/拼音"),
-             ("sector", cmd_sector, "板块或个股名称"),
-             ("reports", cmd_reports, "个股名称/代码"),
-             ("margin", cmd_margin, "个股名称/代码"),
+    specs = [("stock", cmd_stock, "个股名称/代码/拼音（三市场）"),
+             ("sector", cmd_sector, "板块名称（A股）"),
+             ("valuation", cmd_valuation, "个股名称/代码（A股）"),
+             ("kline", cmd_kline, "个股或板块名称（三市场）"),
+             ("business", cmd_business, "个股名称/代码（A股）"),
+             ("reports", cmd_reports, "个股名称/代码（A股）"),
+             ("margin", cmd_margin, "个股名称/代码（A股）"),
              ("search", cmd_search, "任意关键词"),
-             ("chip", cmd_chip, "个股代码"),
-             ("block", cmd_block, "个股代码")]
+             ("chip", cmd_chip, "个股代码（A股）"),
+             ("block", cmd_block, "个股代码（A股）")]
     for name, _, help_ in specs:
         sub.add_parser(name).add_argument("target", help=help_)
     sub.choices["sector"].add_argument("--days", type=int, default=5, help="K线天数，默认5")
+    sub.choices["kline"].add_argument("--days", type=int, default=250, help="K线天数，默认250")
+    sub.choices["valuation"].add_argument("--years", type=int, default=3, help="分位回看年数，默认3")
     args = parser.parse_args()
 
+    kwargs = {}
+    if args.command in ("sector", "kline") and getattr(args, "days", None):
+        kwargs["days"] = args.days
+    elif args.command == "valuation" and getattr(args, "years", None):
+        kwargs["years"] = args.years
     handlers = {name: fn for name, fn, _ in specs}
-    kwargs = {"days": args.days} if args.command == "sector" else {}
     print(f"[查询] {args.command} {args.target}", file=sys.stderr)
-    print(json.dumps(handlers[args.command](args.target, **kwargs), ensure_ascii=False, indent=2))
+    result = handlers[args.command](args.target, **kwargs)
+    result.setdefault("as_of", datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+    print(json.dumps(result, ensure_ascii=False, indent=2))
 
 
 if __name__ == "__main__":

@@ -65,6 +65,8 @@
 | Sivers Semiconductors | SIVE.SE | — | CPO 激光器 + 硅光子 |
 | X-FAB | XFAB.EU | — | 特色工艺晶圆代工 |
 
+> ⚠️ 上表为**事后视角的幸存者样本**，仅用于说明框架逻辑，不代表框架的期望收益。
+
 ---
 
 ## 六步分析链路
@@ -170,9 +172,12 @@ git clone https://github.com/fadewalk/serenity-stock-choke.git ~/.claude/skills/
 1. **智能体自带财经工具**：若环境已接入行情/研报类 MCP 工具，优先使用
 2. **内置脚本**（`scripts/a_stock_query.py`，公开接口零依赖，多源自动降级）：
    ```bash
-   python3 scripts/a_stock_query.py stock 贵州茅台   # A股快照：价格/PE/PB/市值/主力净流入
+   python3 scripts/a_stock_query.py stock 贵州茅台   # A股快照：价格/PE/PB/市值/主力净流入/成交额
    python3 scripts/a_stock_query.py stock 00700      # 港股：腾讯控股（HKD）
    python3 scripts/a_stock_query.py stock AAPL       # 美股：苹果（USD）
+   python3 scripts/a_stock_query.py valuation 600519 # A股历史估值分位（PE/PB百分位）
+   python3 scripts/a_stock_query.py kline 300308     # 风险统计：动量/波动/最大回撤
+   python3 scripts/a_stock_query.py business 600519  # A股主营构成（蹭热点判定）
    python3 scripts/a_stock_query.py sector 电力       # A股板块K线+区间涨跌幅
    python3 scripts/a_stock_query.py reports 600519   # A股券商研报评级
    python3 scripts/a_stock_query.py margin 600519    # A股融资融券余额
